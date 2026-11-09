@@ -51,3 +51,6 @@ next-env.d.ts
 logs/
 logs-build-*.txt
 ._*
+# 数据库备份 dump 含业务数据，禁止入库；保留在本地磁盘 / iCloud 备份中
+backups/
+*.dump
