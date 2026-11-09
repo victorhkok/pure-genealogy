@@ -236,6 +236,200 @@ export async function updateFamilyMember(
   return { success: true, error: null };
 }
 
+/** 批量编辑允许的字段白名单；姓名、生平事迹、ID、updated_at 不允许批量修改。 */
+const BATCH_EDITABLE_KEYS = [
+  "generation",
+  "sibling_order",
+  "father_id",
+  "gender",
+  "is_alive",
+  "birthday",
+  "death_date",
+  "residence_place",
+  "official_position",
+  "spouse",
+] as const;
+
+type BatchEditableKey = (typeof BATCH_EDITABLE_KEYS)[number];
+
+const BATCH_FIELD_LABELS: Record<BatchEditableKey, string> = {
+  generation: "世代",
+  sibling_order: "排行",
+  father_id: "父亲",
+  gender: "性别",
+  is_alive: "在世",
+  birthday: "生日",
+  death_date: "卒年",
+  residence_place: "居住地",
+  official_position: "官职",
+  spouse: "配偶",
+};
+
+export interface BatchUpdateResult {
+  success: boolean;
+  count: number;
+  error: string | null;
+}
+
+/**
+ * 批量更新成员：只有 changes 中出现的字段会被修改，其余字段保持原值；
+ * 值为 null 表示把该字段清空。客户端输入不可信，全部在服务端按白名单与类型重新校验。
+ */
+export async function batchUpdateFamilyMembers(
+  ids: number[],
+  changes: Record<string, string | number | boolean | null>
+): Promise<BatchUpdateResult> {
+  const uniqueIds = Array.from(
+    new Set(ids.filter((id) => Number.isInteger(id) && id > 0))
+  );
+  const fail = (error: string): BatchUpdateResult => ({
+    success: false,
+    count: 0,
+    error,
+  });
+
+  if (uniqueIds.length === 0) return fail("没有选择要修改的成员");
+  if (uniqueIds.length > 500) return fail("单次最多修改 500 位成员，请分批处理");
+  if (!changes || typeof changes !== "object") return fail("修改内容格式不正确");
+
+  const allowed = new Set<string>(BATCH_EDITABLE_KEYS);
+  for (const key of Object.keys(changes)) {
+    if (!allowed.has(key)) return fail(`不支持批量修改字段：${key}`);
+  }
+
+  const has = (key: BatchEditableKey) =>
+    Object.prototype.hasOwnProperty.call(changes, key);
+
+  const payload: {
+    generation?: number | null;
+    sibling_order?: number | null;
+    father_id?: number | null;
+    gender?: "男" | "女" | null;
+    is_alive?: boolean;
+    birthday?: string | null;
+    death_date?: string | null;
+    residence_place?: string | null;
+    official_position?: string | null;
+    spouse?: string | null;
+    updated_at: string;
+  } = { updated_at: new Date().toISOString() };
+
+  const parseOptionalInt = (
+    raw: string | number | boolean | null | undefined,
+    label: string
+  ): { value: number | null } | { error: string } => {
+    if (raw === null || raw === undefined || raw === "") return { value: null };
+    if (typeof raw === "boolean") return { error: `${label} 必须是整数` };
+    const numeric = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isInteger(numeric) || numeric < 0) {
+      return { error: `${label} 必须是不小于 0 的整数` };
+    }
+    return { value: numeric };
+  };
+
+  for (const key of ["generation", "sibling_order"] as const) {
+    if (!has(key)) continue;
+    const parsed = parseOptionalInt(changes[key], BATCH_FIELD_LABELS[key]);
+    if ("error" in parsed) return fail(parsed.error);
+    payload[key] = parsed.value;
+  }
+
+  if (has("father_id")) {
+    const parsed = parseOptionalInt(changes.father_id, "父亲");
+    if ("error" in parsed) return fail(parsed.error);
+    const fatherId = parsed.value;
+    if (fatherId !== null && uniqueIds.includes(fatherId)) {
+      return fail("父亲不能是本次勾选的成员，会造成自引用");
+    }
+    payload.father_id = fatherId;
+  }
+
+  if (has("gender")) {
+    const raw = changes.gender;
+    if (raw === null || raw === "") payload.gender = null;
+    else if (raw === "男" || raw === "女") payload.gender = raw;
+    else return fail("性别只能是「男」「女」或清空");
+  }
+
+  if (has("is_alive")) {
+    const raw = changes.is_alive;
+    if (typeof raw === "boolean") payload.is_alive = raw;
+    else if (raw === "true" || raw === "false") payload.is_alive = raw === "true";
+    else return fail("在世状态只能是「是」或「否」");
+  }
+
+  for (const key of [
+    "birthday",
+    "death_date",
+    "residence_place",
+    "official_position",
+    "spouse",
+  ] as const) {
+    if (!has(key)) continue;
+    const raw = changes[key];
+    if (raw === null || raw === "") {
+      payload[key] = null;
+      continue;
+    }
+    if (typeof raw !== "string") return fail(`${BATCH_FIELD_LABELS[key]} 格式不正确`);
+    const value = raw.trim();
+    if (value === "") {
+      payload[key] = null;
+      continue;
+    }
+    if (
+      (key === "birthday" || key === "death_date") &&
+      !/^\d{4}-\d{2}-\d{2}$/.test(value)
+    ) {
+      return fail(`${BATCH_FIELD_LABELS[key]} 需要是 YYYY-MM-DD 格式`);
+    }
+    payload[key] = value;
+  }
+
+  const changedKeys = Object.keys(payload).filter((key) => key !== "updated_at");
+  if (changedKeys.length === 0) return fail("没有需要修改的字段");
+
+  const supabase = await createClient();
+
+  // 与单条编辑保持一致：只改父亲时，自动把世代设为所选父亲的世代 + 1。
+  if (
+    changedKeys.includes("father_id") &&
+    payload.father_id !== null &&
+    !changedKeys.includes("generation")
+  ) {
+    const { data: father, error: fatherError } = await supabase
+      .from("family_members")
+      .select("id, generation")
+      .eq("id", payload.father_id)
+      .maybeSingle();
+    if (fatherError) return fail(`查询父亲失败：${fatherError.message}`);
+    if (!father) return fail("所选父亲不存在或无权访问");
+    if (father.generation !== null) {
+      payload.generation = father.generation + 1;
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("family_members")
+    .update(payload)
+    .in("id", uniqueIds)
+    .select("id");
+
+  if (error) return fail(error.message);
+
+  const count = data?.length ?? 0;
+  if (count !== uniqueIds.length) {
+    return {
+      success: false,
+      count,
+      error: `预计修改 ${uniqueIds.length} 条，实际更新 ${count} 条；请检查权限或记录是否已被删除`,
+    };
+  }
+
+  revalidatePath("/family-tree", "layout");
+  return { success: true, count, error: null };
+}
+
 async function prepareMemberImport(
   supabase: Awaited<ReturnType<typeof createClient>>,
   input: ImportMemberInput[]

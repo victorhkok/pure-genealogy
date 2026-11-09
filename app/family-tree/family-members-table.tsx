@@ -39,6 +39,7 @@ import {
   fetchMemberById,
 } from "./actions";
 import { ImportMembersDialog } from "./import-members-dialog";
+import { BatchEditMembersDialog } from "./batch-edit-members-dialog";
 import { FatherCombobox } from "./father-combobox";
 import { RichTextEditor } from "@/components/rich-text/editor";
 import { RichTextViewer } from "@/components/rich-text/viewer";
@@ -305,6 +306,14 @@ export function FamilyMembersTable({
             <Plus className="h-4 w-4 mr-2" />
             新增
           </Button>
+
+          <BatchEditMembersDialog
+            selectedIds={Array.from(selectedIds)}
+            onSuccess={() => {
+              setSelectedIds(new Set());
+              router.refresh();
+            }}
+          />
 
           <Button
             variant="destructive"
