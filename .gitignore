@@ -43,3 +43,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 本地自托管运维产物（回滚备份 / 构建日志 / macOS 元数据，不纳入版本控制）
+*.pre-batch-edit
+*.pre-3dfix
+*.bak
+logs/
+logs-build-*.txt
+._*
