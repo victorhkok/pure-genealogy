@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getViewer, guard } from "@/lib/permissions";
-import type { UserRole, UserStatus } from "@/lib/access-types";
+import { maskPersonName } from "@/lib/masking";
+import type { UserRole, UserStatus, BadgeTier, VerificationStatus } from "@/lib/access-types";
 
 export interface ProfileRow {
   user_id: string;
@@ -13,6 +14,23 @@ export interface ProfileRow {
   role: UserRole;
   status: UserStatus;
   created_at: string;
+  is_contributor: boolean;
+  badge_label: string | null;
+  badge_tier: BadgeTier;
+  contribution_note: string | null;
+}
+
+export interface VerificationReviewRow {
+  user_id: string;
+  email: string;
+  real_name_masked: string;
+  phone_masked: string;
+  id_number_masked: string;
+  address_masked: string;
+  status: VerificationStatus;
+  review_note: string | null;
+  revision: number;
+  submitted_at: string;
 }
 
 export interface ClaimRow {
@@ -30,27 +48,34 @@ export interface ClaimRow {
 export interface AdminData {
   profiles: ProfileRow[];
   claims: ClaimRow[];
+  verifications: VerificationReviewRow[];
   error: string | null;
 }
 
 /** 管理后台首屏数据：全部用户档案 + 全部认领申请（仅管理员可读）。 */
 export async function fetchAdminData(): Promise<AdminData> {
   const denied = await guard("admin");
-  if (denied) return { profiles: [], claims: [], error: denied };
+  if (denied) return { profiles: [], claims: [], verifications: [], error: denied };
 
   const supabase = await createClient();
   const { data: profiles, error: profileError } = await supabase
     .from("user_profiles")
     .select("*")
     .order("created_at", { ascending: false });
-  if (profileError) return { profiles: [], claims: [], error: profileError.message };
+  if (profileError)
+    return { profiles: [], claims: [], verifications: [], error: profileError.message };
 
   const { data: claims, error: claimError } = await supabase
     .from("member_claims")
     .select("*")
     .order("created_at", { ascending: false });
   if (claimError) {
-    return { profiles: (profiles ?? []) as ProfileRow[], claims: [], error: claimError.message };
+    return {
+      profiles: (profiles ?? []) as ProfileRow[],
+      claims: [],
+      verifications: [],
+      error: claimError.message,
+    };
   }
 
   const rows = (profiles ?? []) as ProfileRow[];
@@ -77,7 +102,91 @@ export async function fetchAdminData(): Promise<AdminData> {
     created_at: String(c.created_at ?? ""),
   }));
 
-  return { profiles: rows, claims: claimRows, error: null };
+  const { data: verifications } = await supabase
+    .from("user_verifications")
+    .select("user_id, real_name_masked, phone_masked, id_number_masked, address_masked, status, review_note, revision, submitted_at")
+    .order("submitted_at", { ascending: false });
+  const verificationRows: VerificationReviewRow[] = (verifications ?? []).map((v) => ({
+    user_id: String(v.user_id),
+    email: emailById.get(String(v.user_id)) ?? String(v.user_id),
+    real_name_masked: String(v.real_name_masked ?? ""),
+    phone_masked: String(v.phone_masked ?? ""),
+    id_number_masked: String(v.id_number_masked ?? ""),
+    address_masked: String(v.address_masked ?? ""),
+    status: v.status as VerificationStatus,
+    review_note: v.review_note ?? null,
+    revision: Number(v.revision ?? 1),
+    submitted_at: String(v.submitted_at ?? ""),
+  }));
+
+  return { profiles: rows, claims: claimRows, verifications: verificationRows, error: null };
+}
+
+/** 设置 / 取消「认证贡献者」徽章与贡献备注（大 V 式标记）。 */
+export async function setContributorBadge(
+  userId: string,
+  input: {
+    isContributor: boolean;
+    badgeLabel: string;
+    badgeTier: BadgeTier;
+    contributionNote: string;
+  },
+): Promise<{ error: string | null }> {
+  const denied = await guard("admin");
+  if (denied) return { error: denied };
+  if (!["none", "gold", "silver", "bronze"].includes(input.badgeTier)) {
+    return { error: "徽章等级不合法" };
+  }
+  if (input.badgeLabel.length > 30 || input.contributionNote.length > 300) {
+    return { error: "徽章文字最多 30 字，贡献备注最多 300 字" };
+  }
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("user_profiles")
+    .update({
+      is_contributor: input.isContributor,
+      badge_label: input.badgeLabel.trim() || null,
+      badge_tier: input.isContributor ? input.badgeTier : "none",
+      contribution_note: input.contributionNote.trim() || null,
+      contributor_since: input.isContributor ? now : null,
+      updated_at: now,
+    })
+    .eq("user_id", userId);
+  if (error) return { error: error.message };
+  revalidatePath("/family-tree/admin");
+  revalidatePath("/family-tree/settings");
+  revalidatePath("/family-tree/contributors");
+  return { error: null };
+}
+
+/**
+ * 离线实名核对：管理员线下核对证件后，把状态标为已实名 / 驳回。
+ * 系统里只有星号串，明文姓名手机号证件号从未入库，也无法在这里看到。
+ */
+export async function reviewVerification(
+  userId: string,
+  approve: boolean,
+  note: string,
+): Promise<{ error: string | null }> {
+  const denied = await guard("admin");
+  if (denied) return { error: denied };
+  const viewer = await getViewer();
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("user_verifications")
+    .update({
+      status: approve ? "verified" : "rejected",
+      review_note: note.trim() || null,
+      verified_by: viewer?.userId ?? null,
+      verified_at: now,
+    })
+    .eq("user_id", userId);
+  if (error) return { error: error.message };
+  revalidatePath("/family-tree/admin");
+  revalidatePath("/family-tree/settings");
+  return { error: null };
 }
 
 export interface ManagedUserInput {
@@ -95,7 +204,8 @@ export async function createManagedUser(
   if (denied) return { error: denied };
 
   const email = input.email.trim().toLowerCase();
-  const realName = input.realName.trim();
+  // 明文姓名不入库：建号时即转为星号串（王振业 → 王*业）。
+  const realName = maskPersonName(input.realName);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "邮箱格式不正确" };
   if (!realName) return { error: "请填写真实姓名" };
   if (!input.password || input.password.length < 6) return { error: "初始密码至少 6 位" };

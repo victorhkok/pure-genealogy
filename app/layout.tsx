@@ -7,6 +7,8 @@ import "./globals.css";
 import { getPublicRuntimeConfig, serializePublicRuntimeConfig } from "@/lib/runtime-config";
 import { getFamilySurname } from "@/lib/clan-settings";
 import { RuntimeConfigProvider } from "@/components/runtime-config-provider";
+import { AppearanceProvider } from "@/components/appearance-provider";
+import { APPEARANCE_BOOTSTRAP } from "@/lib/appearance";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +52,11 @@ export default async function RootLayout({
           type="application/json"
           dangerouslySetInnerHTML={{ __html: serializePublicRuntimeConfig(config) }}
         />
+        {/* 首屏同步应用字号/对比度，避免 hydrate 后闪烁 */}
+        <script
+          id="appearance-bootstrap"
+          dangerouslySetInnerHTML={{ __html: APPEARANCE_BOOTSTRAP }}
+        />
       </head>
       <body className={`${geistSans.variable} ${notoSerifSC.variable} font-serif antialiased`}>
         <RuntimeConfigProvider config={config}>
@@ -60,7 +67,7 @@ export default async function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            {children}
+            <AppearanceProvider>{children}</AppearanceProvider>
           </ThemeProvider>
           {process.env.VERCEL === "1" && <Analytics />}
         </RuntimeConfigProvider>

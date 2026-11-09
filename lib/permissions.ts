@@ -6,6 +6,8 @@ import {
   type Viewer,
   type UserRole,
   type UserStatus,
+  type BadgeTier,
+  type VerificationStatus,
 } from "@/lib/access-types";
 
 /** 同一请求内只查一次库。返回 null 表示未登录或档案缺失。 */
@@ -17,7 +19,9 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   const userId = userData.user.id;
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
-    .select("user_id, email, real_name, role, status")
+    .select(
+      "user_id, email, real_name, role, status, is_contributor, badge_label, badge_tier, contribution_note",
+    )
     .eq("user_id", userId)
     .maybeSingle();
   if (profileError || !profile) return null;
@@ -28,6 +32,13 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     .eq("user_id", userId)
     .eq("status", "approved");
 
+  // 实名登记状态：表不存在时降级为 none，避免迁移窗口期整站报错。
+  const { data: verification } = await supabase
+    .from("user_verifications")
+    .select("status")
+    .eq("user_id", userId)
+    .maybeSingle();
+
   return {
     userId,
     email: profile.email || userData.user.email || "",
@@ -35,6 +46,11 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     role: profile.role as UserRole,
     status: profile.status as UserStatus,
     approvedClaimIds: (claims ?? []).map((row) => Number(row.member_id)),
+    verification: (verification?.status as VerificationStatus) ?? "none",
+    isContributor: Boolean(profile.is_contributor),
+    badgeLabel: profile.badge_label ?? "",
+    badgeTier: (profile.badge_tier as BadgeTier) ?? "none",
+    contributionNote: profile.contribution_note ?? "",
   };
 });
 
@@ -43,7 +59,7 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
  * 这只是第一道检查；数据库 RLS 是最终边界，防止绕过前端直接调 PostgREST。
  */
 export async function guard(
-  kind: "active" | "admin" | "edit",
+  kind: "active" | "admin" | "edit" | "verified",
   memberId?: number,
 ): Promise<string | null> {
   const viewer = await getViewer();
@@ -53,6 +69,9 @@ export async function guard(
   }
   if (kind === "admin" && viewer.role !== "admin") {
     return "只有管理员可以执行此操作。";
+  }
+  if (kind === "verified" && viewer.verification !== "verified" && viewer.role !== "admin") {
+    return "请先完成实名登记并通过管理员核对，再查看联系资料。";
   }
   if (kind === "edit" && typeof memberId === "number") {
     if (!buildPermissions(viewer).canEditAny && !viewer.approvedClaimIds.includes(memberId)) {

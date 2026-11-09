@@ -13,6 +13,11 @@ services:
       SUPABASE_INTERNAL_URL: ${SUPABASE_INTERNAL_URL:-http://gateway:8000}
       # 仅服务端使用（管理员建号 / 重置密码走 GoTrue Admin API），不带 NEXT_PUBLIC_ 前缀，不会打进前端包。
       SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?请先生成 .env.self-hosted}
+      # 微信登录预留位（默认关闭）。接入条件：企业认证主体 + 备案 HTTPS 域名 +
+      # 微信开放平台 AppID/AppSecret + 自研 GoTrue OAuth 适配层；详见 lib/auth/wechat.ts。
+      # 当前是局域网 HTTP 自托管，不满足接入条件，按钮默认隐藏。
+      NEXT_PUBLIC_WECHAT_LOGIN_ENABLED: ${WECHAT_LOGIN_ENABLED:-false}
+      NEXT_PUBLIC_WECHAT_APP_ID: ${WECHAT_APP_ID:-}
     depends_on:
       gateway:
         condition: service_healthy
@@ -40,6 +45,7 @@ services:
       - ./docker/self-hosted/family-members.sql:/opt/genealogy/family-members.sql:ro
       - ./docker/self-hosted/site-settings.sql:/opt/genealogy/site-settings.sql:ro
       - ./docker/self-hosted/access-control.sql:/opt/genealogy/access-control.sql:ro
+      - ./docker/self-hosted/privacy-access.sql:/opt/genealogy/privacy-access.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
       interval: 5s

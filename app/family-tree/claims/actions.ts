@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getViewer, guard } from "@/lib/permissions";
+import { maskPersonName } from "@/lib/masking";
 
 export interface MyClaimRow {
   id: number;
@@ -59,7 +60,8 @@ export async function submitMemberClaim(input: {
     return { error: "管理员与编辑者本身已有编辑权限，无需认领成员。" };
   }
 
-  const realName = input.realName.trim();
+  // 认领申请中的实名同样只存星号串。
+  const realName = maskPersonName(input.realName);
   if (!realName) return { error: "请填写真实姓名" };
   const memberId = Number(input.memberId);
   if (!Number.isInteger(memberId) || memberId <= 0) return { error: "请选择要认领的成员" };

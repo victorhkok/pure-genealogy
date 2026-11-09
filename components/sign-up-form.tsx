@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { maskPersonName } from "@/lib/masking";
 
 export function SignUpForm({
   className,
@@ -51,7 +52,8 @@ export function SignUpForm({
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/`,
-          data: { real_name: realName.trim() },
+          // 明文姓名不离开浏览器：提交前即打星（王振业 → 王*业）。
+          data: { real_name: maskPersonName(realName) },
         },
       });
       if (error) throw error;

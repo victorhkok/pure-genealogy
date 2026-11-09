@@ -11,6 +11,7 @@ export default async function AdminPage() {
     <AdminConsole
       initialProfiles={data.profiles}
       initialClaims={data.claims}
+      initialVerifications={data.verifications}
       initialError={data.error}
     />
   );

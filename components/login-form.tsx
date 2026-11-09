@@ -16,6 +16,7 @@ import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { getWechatLoginConfig, buildWechatAuthorizeUrl } from "@/lib/auth/wechat";
 
 export function LoginForm({
   className,
@@ -28,6 +29,22 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const wechat = getWechatLoginConfig();
+
+  function onWechatLogin() {
+    if (!wechat.enabled || !wechat.appId) {
+      setError(
+        "微信登录暂未启用：需要企业认证主体、备案 HTTPS 域名与微信开放平台 AppID。当前请先用邮箱登录，再到「设置 → 我的实名资料」登记手机号。",
+      );
+      return;
+    }
+    const url = buildWechatAuthorizeUrl({
+      appId: wechat.appId,
+      redirectUri: `${window.location.origin}/auth/wechat/callback`,
+      state: Math.random().toString(36).slice(2) + Date.now().toString(36),
+    });
+    window.location.href = url;
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +124,23 @@ export function LoginForm({
               </Link>
             </div>
           </form>
+
+          {/* 微信登录预留入口：默认关闭，不做任何外部请求 */}
+          <div className="mt-4 rounded-md border border-dashed p-3 text-center">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={!wechat.enabled || !wechat.appId}
+              onClick={onWechatLogin}
+            >
+              微信登录{!wechat.enabled || !wechat.appId ? "（暂未启用）" : ""}
+            </Button>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              当前是局域网自托管（HTTP + 内网地址），微信登录需企业认证主体、备案 HTTPS 域名与
+              微信开放平台资质，已预留配置位与回调骨架。手机号请在登录后到「设置 → 我的实名资料」登记。
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>

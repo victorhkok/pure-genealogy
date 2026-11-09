@@ -2,6 +2,8 @@
 
 export type UserRole = "admin" | "editor" | "member";
 export type UserStatus = "pending" | "active" | "disabled";
+export type BadgeTier = "none" | "gold" | "silver" | "bronze";
+export type VerificationStatus = "none" | "pending" | "verified" | "rejected";
 
 export interface Viewer {
   userId: string;
@@ -10,6 +12,13 @@ export interface Viewer {
   role: UserRole;
   status: UserStatus;
   approvedClaimIds: number[];
+  /** 离线实名登记是否已由管理员核对通过 */
+  verification: VerificationStatus;
+  /** 贡献者认证 */
+  isContributor: boolean;
+  badgeLabel: string;
+  badgeTier: BadgeTier;
+  contributionNote: string;
 }
 
 /** 传给前端表格的权限快照。仅用于界面展示，真正的拦截在服务端 action + RLS。 */
@@ -23,11 +32,17 @@ export interface ViewerPermissions {
   canEditAny: boolean;
   editableIds: number[];
   canClaim: boolean;
+  canManageUsers: boolean;
+  canVerifyUsers: boolean;
+  canEditPrivateRecords: boolean;
+  /** 已实名且在已认领分支内的用户可查看成员敏感资料 */
+  canViewPrivate: boolean;
 }
 
+/** editor 保留角色值以兼容 RLS，但对外展示为「认证贡献者」。 */
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: "管理员",
-  editor: "编辑者",
+  editor: "认证贡献者",
   member: "普通用户",
 };
 
@@ -35,6 +50,20 @@ export const STATUS_LABELS: Record<UserStatus, string> = {
   pending: "待审核",
   active: "已启用",
   disabled: "已停用",
+};
+
+export const VERIFICATION_LABELS: Record<VerificationStatus, string> = {
+  none: "未登记",
+  pending: "待核对",
+  verified: "已实名",
+  rejected: "已驳回",
+};
+
+export const BADGE_TIER_LABELS: Record<BadgeTier, string> = {
+  none: "无",
+  gold: "金徽章",
+  silver: "银徽章",
+  bronze: "铜徽章",
 };
 
 export const GUEST_PERMISSIONS: ViewerPermissions = {
@@ -47,6 +76,10 @@ export const GUEST_PERMISSIONS: ViewerPermissions = {
   canEditAny: false,
   editableIds: [],
   canClaim: false,
+  canManageUsers: false,
+  canVerifyUsers: false,
+  canEditPrivateRecords: false,
+  canViewPrivate: false,
 };
 
 export function buildPermissions(viewer: Viewer | null): ViewerPermissions {
@@ -64,6 +97,12 @@ export function buildPermissions(viewer: Viewer | null): ViewerPermissions {
     editableIds: viewer.approvedClaimIds,
     // 普通用户只能认领一次；已有生效认领后不再显示认领入口。
     canClaim: viewer.role === "member" && viewer.approvedClaimIds.length === 0,
+    canManageUsers: isAdmin,
+    canVerifyUsers: isAdmin,
+    canEditPrivateRecords: isAdmin,
+    canViewPrivate:
+      isAdmin ||
+      (viewer.verification === "verified" && viewer.approvedClaimIds.length > 0),
   };
 }
 

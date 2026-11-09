@@ -33,32 +33,39 @@ export function SettingsForm() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-10 max-w-lg">
-      <h1 className="text-2xl font-bold mb-6">家族设置</h1>
-      <label className="block text-sm font-medium mb-2">家族姓氏</label>
-      <input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        maxLength={2}
-        className="w-full rounded-md border px-3 py-2 text-base"
-        placeholder="例如：王"
-      />
-      <p className="mt-2 text-xs text-muted-foreground">
-        填写单字（如「王」），系统自动显示为「王氏族谱」。保存后请刷新页面。
-      </p>
-      <button
-        type="button"
-        onClick={onSave}
-        disabled={status === "saving"}
-        className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-      >
-        {status === "saving" ? "保存中…" : "保存"}
-      </button>
-      {message ? (
-        <p className={"mt-3 text-sm " + (status === "error" ? "text-red-500" : "text-green-600")}>
-          {message}
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-lg font-semibold">家族设置</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          修改全站显示的家族姓氏。仅管理员可操作，数据库行级策略同样做了限制。
         </p>
-      ) : null}
+      </div>
+      <div className="space-y-3 rounded-lg border p-4">
+        <label className="block text-sm font-medium">家族姓氏</label>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          maxLength={2}
+          className="w-full max-w-xs rounded-md border px-3 py-2 text-base bg-background text-foreground"
+          placeholder="例如：王"
+        />
+        <p className="text-xs text-muted-foreground">
+          填写单字（如「王」），系统自动显示为「王氏族谱」。保存后请刷新页面。
+        </p>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={status === "saving"}
+          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+        >
+          {status === "saving" ? "保存中…" : "保存"}
+        </button>
+        {message ? (
+          <p className={"text-sm " + (status === "error" ? "text-red-500" : "text-green-600")}>
+            {message}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

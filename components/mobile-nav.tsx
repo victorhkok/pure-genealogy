@@ -51,6 +51,11 @@ export function MobileNav({ children }: { children: React.ReactNode }) {
             生平册
           </Link>
         </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/family-tree/contributors" className="w-full cursor-pointer">
+            贡献者名录
+          </Link>
+        </DropdownMenuItem>
 
         <DropdownMenuSeparator />
 

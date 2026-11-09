@@ -68,6 +68,70 @@
   }
 }
 
+/* ------------------------------------------------------------------
+ * 长辈友好个性化显示：由 AppearanceProvider 写 <html data-*>
+ * 字号用 rem 体系，改 html font-size 即可等比放大整个界面。
+ * ------------------------------------------------------------------ */
+html[data-font-scale="large"] {
+  font-size: 18px;
+}
+html[data-font-scale="xlarge"] {
+  font-size: 20px;
+}
+html[data-elder="on"] {
+  font-size: 20px;
+  letter-spacing: 0.015em;
+}
+html[data-elder="on"] p,
+html[data-elder="on"] td,
+html[data-elder="on"] th,
+html[data-elder="on"] li {
+  line-height: 1.9;
+}
+html[data-elder="on"] button,
+html[data-elder="on"] a,
+html[data-elder="on"] input,
+html[data-elder="on"] select {
+  min-height: 44px;
+}
+html[data-elder="on"] button,
+html[data-elder="on"] input,
+html[data-elder="on"] select {
+  font-size: 1rem;
+  padding-left: 0.9rem;
+  padding-right: 0.9rem;
+}
+
+/* 高对比：提高正文/边框/输入框的对比度，并给链接加下划线 */
+html[data-contrast="high"] {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 0%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 0%;
+  --border: 0 0% 35%;
+  --input: 0 0% 20%;
+  --muted-foreground: 0 0% 22%;
+  --primary: 0 0% 8%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 0 0% 0%;
+}
+html[data-contrast="high"] a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+html.dark[data-contrast="high"] {
+  --background: 0 0% 4%;
+  --foreground: 0 0% 100%;
+  --card: 0 0% 6%;
+  --card-foreground: 0 0% 100%;
+  --border: 0 0% 70%;
+  --input: 0 0% 78%;
+  --muted-foreground: 0 0% 88%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 0 0% 4%;
+  --ring: 0 0% 100%;
+}
+
 @keyframes brush-reveal {
   0% {
     opacity: 0;
