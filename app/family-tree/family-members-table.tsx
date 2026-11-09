@@ -30,6 +30,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Search, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { canEditMember, type ViewerPermissions } from "@/lib/access-types";
 import type { FamilyMember } from "./actions";
 import {
   createFamilyMember,
@@ -51,6 +53,8 @@ interface FamilyMembersTableProps {
   currentPage: number;
   pageSize: number;
   searchQuery: string;
+  /** 服务端下发的权限快照，只控制界面显示；写操作在 action + RLS 里再次校验。 */
+  permissions: ViewerPermissions;
 }
 
 export function FamilyMembersTable({
@@ -59,6 +63,7 @@ export function FamilyMembersTable({
   currentPage,
   pageSize,
   searchQuery,
+  permissions,
 }: FamilyMembersTableProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -205,12 +210,14 @@ export function FamilyMembersTable({
 
   // 打开新增弹窗
   const handleOpenAddDialog = () => {
+    if (!permissions.canCreate) return;
     resetForm();
     setIsDialogOpen(true);
   };
 
   // 打开编辑弹窗
   const handleOpenEditDialog = (member: FamilyMember) => {
+    if (!canEditMember(permissions, member.id)) return;
     setEditingMember(member);
     setFormData({
       name: member.name,
@@ -298,31 +305,45 @@ export function FamilyMembersTable({
           </Button>
         </form>
 
-        {/* 操作按钮 */}
+        {/* 操作按钮：按角色显示。普通用户看不到任何增删改入口。 */}
         <div className="flex gap-2 flex-wrap w-full lg:w-auto">
-          <ImportMembersDialog onSuccess={() => router.refresh()} />
-          
-          <Button onClick={handleOpenAddDialog}>
-            <Plus className="h-4 w-4 mr-2" />
-            新增
-          </Button>
+          {permissions.canImport ? (
+            <ImportMembersDialog onSuccess={() => router.refresh()} />
+          ) : null}
 
-          <BatchEditMembersDialog
-            selectedIds={Array.from(selectedIds)}
-            onSuccess={() => {
-              setSelectedIds(new Set());
-              router.refresh();
-            }}
-          />
+          {permissions.canCreate ? (
+            <Button onClick={handleOpenAddDialog}>
+              <Plus className="h-4 w-4 mr-2" />
+              新增
+            </Button>
+          ) : null}
 
-          <Button
-            variant="destructive"
-            onClick={handleDelete}
-            disabled={selectedIds.size === 0 || isDeleting}
-          >
-            {isDeleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
-            删除 {selectedIds.size > 0 && `(${selectedIds.size})`}
-          </Button>
+          {permissions.canBatch ? (
+            <BatchEditMembersDialog
+              selectedIds={Array.from(selectedIds)}
+              onSuccess={() => {
+                setSelectedIds(new Set());
+                router.refresh();
+              }}
+            />
+          ) : null}
+
+          {permissions.canDelete ? (
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={selectedIds.size === 0 || isDeleting}
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              删除 {selectedIds.size > 0 && `(${selectedIds.size})`}
+            </Button>
+          ) : null}
+
+          {permissions.role === "member" ? (
+            <Button asChild variant="outline">
+              <Link href="/family-tree/my-claims">我的认领</Link>
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -589,13 +610,17 @@ export function FamilyMembersTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-12">
-                <Checkbox
-                  checked={allSelected}
-                  onCheckedChange={handleSelectAll}
-                  aria-label="全选"
-                />
-              </TableHead>
+              {permissions.canBatch || permissions.canDelete ? (
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={allSelected}
+                    onCheckedChange={handleSelectAll}
+                    aria-label="全选"
+                  />
+                </TableHead>
+              ) : (
+                <TableHead className="w-12" />
+              )}
               <TableHead className="w-16">ID</TableHead>
               <TableHead>姓名</TableHead>
               <TableHead className="w-20">世代</TableHead>
@@ -625,52 +650,74 @@ export function FamilyMembersTable({
                   key={member.id}
                   data-state={selectedIds.has(member.id) ? "selected" : undefined}
                 >
-                  <TableCell>
-                    <Checkbox
-                      checked={selectedIds.has(member.id)}
-                      onCheckedChange={(checked) =>
-                        handleSelectOne(member.id, checked as boolean)
-                      }
-                      aria-label={`选择 ${member.name}`}
-                    />
-                  </TableCell>
+                  {permissions.canBatch || permissions.canDelete ? (
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedIds.has(member.id)}
+                        onCheckedChange={(checked) =>
+                          handleSelectOne(member.id, checked as boolean)
+                        }
+                        aria-label={`选择 ${member.name}`}
+                      />
+                    </TableCell>
+                  ) : (
+                    <TableCell />
+                  )}
                   <TableCell className="font-mono">{member.id}</TableCell>
                   <TableCell className="font-medium">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditDialog(member)}
-                      className="text-primary hover:underline cursor-pointer text-left"
-                    >
-                      {member.name}
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {canEditMember(permissions, member.id) ? (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditDialog(member)}
+                          className="text-primary hover:underline cursor-pointer text-left"
+                        >
+                          {member.name}
+                        </button>
+                      ) : (
+                        <span>{member.name}</span>
+                      )}
+                      {permissions.canClaim ? (
+                        <Link
+                          href={`/family-tree/my-claims?member=${member.id}`}
+                          className="text-xs text-primary hover:underline whitespace-nowrap"
+                        >
+                          认领
+                        </Link>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>{member.generation ?? "-"}</TableCell>
                   <TableCell>{member.sibling_order ?? "-"}</TableCell>
                   <TableCell>
                     {member.father_id && member.father_name ? (
                       <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          disabled={loadingFatherId === member.father_id}
-                          onClick={async () => {
-                            if (!member.father_id) return;
-                            setLoadingFatherId(member.father_id);
-                            try {
-                              const fatherData = await fetchMemberById(member.father_id);
-                              if (fatherData) {
-                                handleOpenEditDialog(fatherData);
+                        {canEditMember(permissions, member.father_id) ? (
+                          <button
+                            type="button"
+                            disabled={loadingFatherId === member.father_id}
+                            onClick={async () => {
+                              if (!member.father_id) return;
+                              setLoadingFatherId(member.father_id);
+                              try {
+                                const fatherData = await fetchMemberById(member.father_id);
+                                if (fatherData) {
+                                  handleOpenEditDialog(fatherData);
+                                }
+                              } finally {
+                                setLoadingFatherId(null);
                               }
-                            } finally {
-                              setLoadingFatherId(null);
-                            }
-                          }}
-                          className={cn(
-                            "text-primary hover:underline cursor-pointer text-left",
-                            loadingFatherId === member.father_id && "opacity-70 cursor-wait"
-                          )}
-                        >
-                          {member.father_name}
-                        </button>
+                            }}
+                            className={cn(
+                              "text-primary hover:underline cursor-pointer text-left",
+                              loadingFatherId === member.father_id && "opacity-70 cursor-wait"
+                            )}
+                          >
+                            {member.father_name}
+                          </button>
+                        ) : (
+                          <span>{member.father_name}</span>
+                        )}
                         {loadingFatherId === member.father_id && (
                           <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                         )}

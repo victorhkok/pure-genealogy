@@ -3,6 +3,7 @@
 import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import { fetchMemberNamesByIds } from "./member-queries";
 import { createClient } from "@/lib/supabase/server";
+import { guard } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 import {
   importMemberKey,
@@ -44,6 +45,9 @@ export async function fetchFamilyMembers(
   pageSize: number = 50,
   searchQuery: string = ""
 ): Promise<FetchMembersResult> {
+  const denied = await guard("active");
+  if (denied) return { data: [], count: 0, error: denied };
+
   const supabase = await createClient();
 
   const from = (page - 1) * pageSize;
@@ -103,6 +107,9 @@ export interface CreateMemberInput {
 export async function createFamilyMember(
   input: CreateMemberInput
 ): Promise<{ success: boolean; error: string | null }> {
+  const denied = await guard("admin");
+  if (denied) return { success: false, error: denied };
+
   const supabase = await createClient();
 
   const { error } = await supabase.from("family_members").insert({
@@ -131,6 +138,8 @@ export async function createFamilyMember(
 export async function deleteFamilyMembers(
   ids: number[]
 ): Promise<{ success: boolean; error: string | null }> {
+  const denied = await guard("admin");
+  if (denied) return { success: false, error: denied };
   if (ids.length === 0) {
     return { success: false, error: "没有选择要删除的成员" };
   }
@@ -207,6 +216,9 @@ export async function fetchMemberById(
 export async function updateFamilyMember(
   input: UpdateMemberInput
 ): Promise<{ success: boolean; error: string | null }> {
+  const denied = await guard("edit", input.id);
+  if (denied) return { success: false, error: denied };
+
   const supabase = await createClient();
 
   const { error } = await supabase
@@ -287,6 +299,9 @@ export async function batchUpdateFamilyMembers(
     count: 0,
     error,
   });
+
+  const denied = await guard("admin");
+  if (denied) return fail(denied);
 
   if (uniqueIds.length === 0) return fail("没有选择要修改的成员");
   if (uniqueIds.length > 500) return fail("单次最多修改 500 位成员，请分批处理");
@@ -468,6 +483,8 @@ export async function previewFamilyMembersImport(
   members: ImportMemberInput[]
 ): Promise<{ fathers: ImportFatherMatch[]; error: string | null }> {
   try {
+    const denied = await guard("admin");
+    if (denied) return { fathers: [], error: denied };
     const supabase = await createClient();
     const prepared = await prepareMemberImport(supabase, members);
     return { fathers: prepared.fathers, error: null };
@@ -479,6 +496,9 @@ export async function previewFamilyMembersImport(
 export async function batchCreateFamilyMembers(
   input: ImportMemberInput[]
 ): Promise<{ success: boolean; count: number; error: string | null }> {
+  const denied = await guard("admin");
+  if (denied) return { success: false, count: 0, error: denied };
+
   const supabase = await createClient();
   const insertedBatches: number[][] = [];
   let untrackedCount = 0;

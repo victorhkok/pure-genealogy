@@ -23,6 +23,7 @@ export function SignUpForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
+  const [realName, setRealName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
@@ -38,6 +39,11 @@ export function SignUpForm({
       setIsLoading(false);
       return;
     }
+    if (!realName.trim()) {
+      setError("请填写真实姓名，管理员需要据此核对身份");
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const { error } = await supabase.auth.signUp({
@@ -45,10 +51,12 @@ export function SignUpForm({
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/`,
+          data: { real_name: realName.trim() },
         },
       });
       if (error) throw error;
-      router.push("/auth/sign-up-success");
+      // 自托管无 SMTP，注册已自动确认；账号仍为 pending，落地页会说明需管理员审核。
+      router.push("/auth/pending");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
@@ -61,11 +69,25 @@ export function SignUpForm({
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl">注册</CardTitle>
-          <CardDescription>创建一个新账户</CardDescription>
+          <CardDescription>实名注册，管理员审核通过后即可访问族谱</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSignUp}>
             <div className="flex flex-col gap-6">
+              <div className="grid gap-2">
+                <Label htmlFor="real-name">真实姓名</Label>
+                <Input
+                  id="real-name"
+                  type="text"
+                  placeholder="身份证上的姓名"
+                  required
+                  value={realName}
+                  onChange={(e) => setRealName(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  仅管理员可见并用于核对身份；注册后需等待管理员启用账号。
+                </p>
+              </div>
               <div className="grid gap-2">
                 <Label htmlFor="email">邮箱</Label>
                 <Input

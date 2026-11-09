@@ -63,6 +63,37 @@ export async function updateSession(request: NextRequest) {
     return response;
   }
 
+  // 账号审核闸门：登录成功不等于能访问族谱。
+  // 实名自助注册的账号默认是 pending，必须由管理员在 user_profiles 里启用；
+  // 被停用（disabled）的账号同样落到这里。RLS 是最终边界，这里只负责给出友好跳转。
+  const pathname = request.nextUrl.pathname;
+  const skipAccessCheck =
+    pathname === "/" ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/api") ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/noauth") ||
+    pathname.startsWith("/_next");
+  if (user && !skipAccessCheck) {
+    let active = false;
+    if (user.sub) {
+      const { data: profile, error: profileError } = await supabase
+        .from("user_profiles")
+        .select("status")
+        .eq("user_id", user.sub)
+        .maybeSingle();
+      active = !profileError && profile?.status === "active";
+    }
+    if (!active) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/auth/pending";
+      url.search = "";
+      const response = NextResponse.redirect(url);
+      supabaseResponse.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
+      return response;
+    }
+  }
+
   // IMPORTANT: You *must* return the supabaseResponse object as it is.
   // If you're creating a new response object with NextResponse.next() make sure to:
   // 1. Pass the request in it, like so:

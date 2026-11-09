@@ -1,5 +1,7 @@
 import { fetchFamilyMembers } from "./actions";
 import { FamilyMembersTable } from "./family-members-table";
+import { getViewer } from "@/lib/permissions";
+import { buildPermissions } from "@/lib/access-types";
 
 interface FamilyMembersLoaderProps {
   page: number;
@@ -12,7 +14,12 @@ export async function FamilyMembersLoader({
   pageSize,
   search,
 }: FamilyMembersLoaderProps) {
-  const { data, count, error } = await fetchFamilyMembers(page, pageSize, search);
+  // getViewer 与 fetchFamilyMembers 里的 guard 共用 React cache，同一请求只查一次库。
+  const [{ data, count, error }, viewer] = await Promise.all([
+    fetchFamilyMembers(page, pageSize, search),
+    getViewer(),
+  ]);
+  const permissions = buildPermissions(viewer);
 
   if (error) {
     return (
@@ -29,6 +36,7 @@ export async function FamilyMembersLoader({
       currentPage={page}
       pageSize={pageSize}
       searchQuery={search}
+      permissions={permissions}
     />
   );
 }
