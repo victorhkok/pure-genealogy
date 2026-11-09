@@ -114,6 +114,8 @@ export function SettingsClient(props: {
               initialProfiles={props.adminData.profiles}
               initialClaims={props.adminData.claims}
               initialVerifications={props.adminData.verifications}
+              initialMembers={props.adminData.members}
+              initialIsBranchAdminView={props.adminData.isBranchAdminView}
               initialError={props.adminData.error}
             />
           ) : null}

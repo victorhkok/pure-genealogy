@@ -52,27 +52,36 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
 $$;
 
 -- 当前房支管理员是否可管理该成员（房祖为空则无管辖范围）。
+-- 用 plpgsql 包裹，避免 SQL 函数内联后把行内字段带进子查询（RLS 子查询关联限制）。
 CREATE OR REPLACE FUNCTION public.is_branch_admin_for(p_member_id bigint)
 RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT public.is_branch_admin() AND EXISTS (
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN public.is_branch_admin() AND EXISTS (
     SELECT 1 FROM public.user_profiles p
     WHERE p.user_id = auth.uid()
       AND p.branch_scope IS NOT NULL
       AND public.member_in_branch_root(p_member_id, p.branch_scope)
   );
+END;
 $$;
 
 -- 房支管理员可插入的成员：父亲必须落在房支内（禁止房支管理员凭空创建新根）。
+-- 用 plpgsql 包裹，避免 SQL 函数被内联进 INSERT 策略时把行字段带进子查询引发解析问题；
+-- 注意：RLS 策略中行字段用裸列名（father_id）引用，不能用 NEW./OLD. 前缀（那是触发器写法）。
 CREATE OR REPLACE FUNCTION public.branch_allows_insert(p_father_id bigint)
 RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT public.is_branch_admin() AND p_father_id IS NOT NULL AND EXISTS (
-    SELECT 1 FROM public.user_profiles p
-    WHERE p.user_id = auth.uid()
-      AND p.branch_scope IS NOT NULL
-      AND public.member_in_branch_root(p_father_id, p.branch_scope)
-  );
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN public.is_branch_admin()
+    AND p_father_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM public.user_profiles p
+      WHERE p.user_id = auth.uid()
+        AND p.branch_scope IS NOT NULL
+        AND public.member_in_branch_root(p_father_id, p.branch_scope)
+    );
+END;
 $$;
 
 -- 房支管理员可管理的用户：该用户有已批准认领落在管理员房支内。
@@ -129,7 +138,7 @@ GRANT EXECUTE ON FUNCTION public.can_edit_member(bigint) TO authenticated, servi
 DROP POLICY IF EXISTS family_members_insert_branch ON public.family_members;
 CREATE POLICY family_members_insert_branch ON public.family_members
   FOR INSERT TO authenticated
-  WITH CHECK (public.branch_allows_insert(NEW.father_id));
+  WITH CHECK (public.branch_allows_insert(father_id));
 
 DROP POLICY IF EXISTS family_members_delete_branch ON public.family_members;
 CREATE POLICY family_members_delete_branch ON public.family_members
@@ -186,10 +195,37 @@ CREATE POLICY profiles_status_branch ON public.user_profiles
     OR (
       public.user_in_my_branch(user_id)
       AND user_id <> auth.uid()
-      AND NEW.role = OLD.role          -- 房支管理员不能改角色（防提权）
-      AND NEW.user_id = OLD.user_id
     )
   );
+
+-- -------------------------------------------------------------
+-- 8. 防提权触发器：非总管理员禁止改动 role / user_id / branch_scope
+--    （应用层 setUserRole / setUserBranchScope 已用 guard('admin') 拦截，
+--     此处作 RLS 级兜底，堵住直接 PATCH PostgREST 提升权限的漏洞）
+-- -------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.user_profiles_branch_guard()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_role text;
+BEGIN
+  SELECT role INTO v_role FROM public.user_profiles WHERE user_id = auth.uid();
+  IF v_role = 'admin' THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.role IS DISTINCT FROM OLD.role
+     OR NEW.user_id IS DISTINCT FROM OLD.user_id
+     OR NEW.branch_scope IS DISTINCT FROM OLD.branch_scope THEN
+    RAISE EXCEPTION '无权限修改角色 / 房支范围 / 用户标识（仅总管理员可改）';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_user_profiles_branch_guard ON public.user_profiles;
+CREATE TRIGGER trg_user_profiles_branch_guard
+  BEFORE UPDATE ON public.user_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.user_profiles_branch_guard();
 
 COMMIT;
 
