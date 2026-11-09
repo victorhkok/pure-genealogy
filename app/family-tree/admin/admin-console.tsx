@@ -16,6 +16,7 @@ import {
   createManagedUser,
   setUserRole,
   setUserStatus,
+  setUserBranchScope,
   resetUserPassword,
   reviewMemberClaim,
   revokeMemberClaim,
@@ -24,12 +25,17 @@ import {
   type ProfileRow,
   type ClaimRow,
   type VerificationReviewRow,
+  type MemberOption,
 } from "./actions";
+
+const ROLE_OPTIONS: UserRole[] = ["member", "editor", "branch_admin", "admin"];
 
 interface Props {
   initialProfiles: ProfileRow[];
   initialClaims: ClaimRow[];
   initialVerifications: VerificationReviewRow[];
+  initialMembers: MemberOption[];
+  initialIsBranchAdminView: boolean;
   initialError: string | null;
 }
 
@@ -48,9 +54,14 @@ export function AdminConsole({
   initialProfiles,
   initialClaims,
   initialVerifications,
+  initialMembers,
+  initialIsBranchAdminView,
   initialError,
 }: Props) {
   const router = useRouter();
+  const isBranchAdminView = initialIsBranchAdminView;
+  const memberName = (id: number | null | undefined) =>
+    id == null ? "" : (initialMembers.find((m) => m.id === id)?.name ?? `#${id}`);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(
     initialError ? { text: initialError, ok: false } : null,
   );
@@ -61,6 +72,7 @@ export function AdminConsole({
   const [password, setPassword] = useState("");
   const [realName, setRealName] = useState("");
   const [newRole, setNewRole] = useState<UserRole>("member");
+  const [branchScope, setBranchScope] = useState<number | null>(null);
 
   // 行内改密
   const [resetTarget, setResetTarget] = useState<string | null>(null);
@@ -117,13 +129,20 @@ export function AdminConsole({
     e.preventDefault();
     setBusy(true);
     try {
-      const { error } = await createManagedUser({ email, password, realName, role: newRole });
+      const { error } = await createManagedUser({
+        email,
+        password,
+        realName,
+        role: newRole,
+        branchScope: newRole === "branch_admin" ? branchScope : null,
+      });
       report(error, `账号 ${email} 已创建并启用。`);
       if (!error) {
         setEmail("");
         setPassword("");
         setRealName("");
         setNewRole("member");
+        setBranchScope(null);
         router.refresh();
       }
     } catch (err) {
@@ -158,11 +177,20 @@ export function AdminConsole({
       <div>
         <h1 className="text-2xl font-bold">用户与权限管理</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          角色说明：管理员全权；「认证贡献者」可编辑任意成员但不能增删，并可授予徽章与贡献备注（如理事会职务、
-          捐资纪录），在贡献者名录公开展示；普通用户只能认领自己的那条记录，审批通过后方可编辑。
+          角色说明（两级管理）：<b>总管理员</b>全权，可建号、改角色、划定房支范围、核对实名；
+          <b>房支管理员</b>仅管辖所选「房祖」向下的整条房支子树（含全部后代），可在本支内增删改成员、启用/停用本支用户、审批本支认领，
+          但不能改他人角色、不能改房支范围、不能重置密码、不能做实名核对；
+          <b>认证贡献者</b>可编辑任意成员但不能增删，并可授予徽章与贡献备注（如理事会职务、捐资纪录），在贡献者名录公开展示；
+          <b>普通用户</b>只能认领自己的那条记录，审批通过后方可编辑。
           实名资料一律以星号串保存，管理员线下核对证件后标记「已实名」。
         </p>
       </div>
+
+      {isBranchAdminView ? (
+        <div className="rounded-md border border-blue-500 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          你当前以「房支管理员」身份查看，仅显示你管辖房支内的用户、认领与实名记录；建号、改角色、划房支、重置密码、实名核对等操作仅总管理员可用。
+        </div>
+      ) : null}
 
       {message ? (
         <div
@@ -177,60 +205,82 @@ export function AdminConsole({
         </div>
       ) : null}
 
-      {/* 新建用户 */}
-      <section className="rounded-lg border p-5">
-        <h2 className="text-lg font-semibold mb-4">新增用户（建号即启用）</h2>
-        <form onSubmit={onCreate} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end">
-          <label className="block text-sm">
-            <span className="block mb-1">邮箱</span>
-            <input
-              className={inputCls}
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="user@example.com"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="block mb-1">初始密码</span>
-            <input
-              className={inputCls}
-              type="text"
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="至少 6 位"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="block mb-1">真实姓名</span>
-            <input
-              className={inputCls}
-              required
-              value={realName}
-              onChange={(e) => setRealName(e.target.value)}
-              placeholder="身份证姓名"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="block mb-1">角色</span>
-            <select
-              className={inputCls}
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value as UserRole)}
-            >
-              <option value="member">普通用户</option>
-              <option value="editor">编辑者</option>
-              <option value="admin">管理员</option>
-            </select>
-          </label>
-          <button type="submit" className={primaryCls} disabled={busy}>
-            {busy ? "处理中…" : "创建用户"}
-          </button>
-        </form>
-      </section>
+      {/* 新建用户（仅总管理员可建号） */}
+      {!isBranchAdminView ? (
+        <section className="rounded-lg border p-5">
+          <h2 className="text-lg font-semibold mb-4">新增用户（建号即启用）</h2>
+          <form onSubmit={onCreate} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end">
+            <label className="block text-sm">
+              <span className="block mb-1">邮箱</span>
+              <input
+                className={inputCls}
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="user@example.com"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="block mb-1">初始密码</span>
+              <input
+                className={inputCls}
+                type="text"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="至少 6 位"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="block mb-1">真实姓名</span>
+              <input
+                className={inputCls}
+                required
+                value={realName}
+                onChange={(e) => setRealName(e.target.value)}
+                placeholder="身份证姓名"
+              />
+            </label>
+            <div className="block text-sm">
+              <span className="block mb-1">角色</span>
+              <select
+                className={inputCls}
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value as UserRole)}
+              >
+                {ROLE_OPTIONS.map((r) => (
+                  <option key={r} value={r}>
+                    {ROLE_LABELS[r]}
+                  </option>
+                ))}
+              </select>
+              {newRole === "branch_admin" ? (
+                <div className="mt-2">
+                  <span className="block mb-1 text-xs">管辖房祖</span>
+                  <select
+                    className={inputCls + " text-xs"}
+                    value={branchScope ?? ""}
+                    required
+                    onChange={(e) => setBranchScope(e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">请选择房祖</option>
+                    {initialMembers.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} #{m.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </div>
+            <button type="submit" className={primaryCls} disabled={busy}>
+              {busy ? "处理中…" : "创建用户"}
+            </button>
+          </form>
+        </section>
+      ) : null}
 
       {/* 用户列表 */}
       <section className="rounded-lg border p-5">
@@ -248,6 +298,7 @@ export function AdminConsole({
                 <th className="py-2 pr-3">实名</th>
                 <th className="py-2 pr-3">认证徽章</th>
                 <th className="py-2 pr-3">角色</th>
+                <th className="py-2 pr-3">管辖房祖</th>
                 <th className="py-2 pr-3">状态</th>
                 <th className="py-2 pr-3">注册时间</th>
                 <th className="py-2 pr-3">操作</th>
@@ -336,7 +387,7 @@ export function AdminConsole({
                     <select
                       className="rounded border px-2 py-1 text-xs bg-background"
                       value={p.role}
-                      disabled={busy}
+                      disabled={busy || isBranchAdminView}
                       onChange={(e) =>
                         run(
                           () => setUserRole(p.user_id, e.target.value as UserRole),
@@ -344,10 +395,46 @@ export function AdminConsole({
                         )
                       }
                     >
-                      <option value="member">普通用户</option>
-                      <option value="editor">编辑者</option>
-                      <option value="admin">管理员</option>
+                      {ROLE_OPTIONS.map((r) => (
+                        <option key={r} value={r}>
+                          {ROLE_LABELS[r]}
+                        </option>
+                      ))}
                     </select>
+                  </td>
+                  <td className="py-2 pr-3 min-w-[160px]">
+                    {p.role === "branch_admin" ? (
+                      isBranchAdminView ? (
+                        <span className="text-xs">
+                          {memberName(p.branch_scope) || "未设置"}
+                        </span>
+                      ) : (
+                        <select
+                          className="rounded border px-2 py-1 text-xs bg-background"
+                          value={p.branch_scope ?? ""}
+                          disabled={busy}
+                          onChange={(e) =>
+                            run(
+                              () =>
+                                setUserBranchScope(
+                                  p.user_id,
+                                  e.target.value ? Number(e.target.value) : null,
+                                ),
+                              `已更新 ${p.email} 的管辖房祖。`,
+                            )
+                          }
+                        >
+                          <option value="">未设置</option>
+                          {initialMembers.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name} #{m.id}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </td>
                   <td className="py-2 pr-3">{statusBadge(p.status)}</td>
                   <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">{fmt(p.created_at)}</td>
@@ -370,16 +457,18 @@ export function AdminConsole({
                           停用
                         </button>
                       )}
-                      <button
-                        className={btnCls}
-                        disabled={busy}
-                        onClick={() => {
-                          setResetTarget(resetTarget === p.user_id ? null : p.user_id);
-                          setNewPassword("");
-                        }}
-                      >
-                        改密
-                      </button>
+                      {!isBranchAdminView ? (
+                        <button
+                          className={btnCls}
+                          disabled={busy}
+                          onClick={() => {
+                            setResetTarget(resetTarget === p.user_id ? null : p.user_id);
+                            setNewPassword("");
+                          }}
+                        >
+                          改密
+                        </button>
+                      ) : null}
                     </div>
                     {resetTarget === p.user_id ? (
                       <div className="mt-2 flex gap-1.5">
@@ -409,7 +498,7 @@ export function AdminConsole({
               ))}
               {initialProfiles.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-6 text-center text-muted-foreground">
+                  <td colSpan={8} className="py-6 text-center text-muted-foreground">
                     暂无用户
                   </td>
                 </tr>
@@ -484,32 +573,36 @@ export function AdminConsole({
                   <td className="py-2 pr-3">v{v.revision}</td>
                   <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">{fmt(v.submitted_at)}</td>
                   <td className="py-2 pr-3">
-                    <div className="flex flex-wrap gap-1.5">
-                      <button
-                        className={primaryCls}
-                        disabled={busy}
-                        onClick={() =>
-                          run(
-                            () => reviewVerification(v.user_id, true, verifyNote),
-                            `已标记 ${v.email} 为已实名。`,
-                          ).then(() => setVerifyNote(""))
-                        }
-                      >
-                        核对通过
-                      </button>
-                      <button
-                        className={btnCls}
-                        disabled={busy}
-                        onClick={() =>
-                          run(
-                            () => reviewVerification(v.user_id, false, verifyNote),
-                            `已驳回 ${v.email} 的实名申请。`,
-                          ).then(() => setVerifyNote(""))
-                        }
-                      >
-                        驳回
-                      </button>
-                    </div>
+                    {!isBranchAdminView ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          className={primaryCls}
+                          disabled={busy}
+                          onClick={() =>
+                            run(
+                              () => reviewVerification(v.user_id, true, verifyNote),
+                              `已标记 ${v.email} 为已实名。`,
+                            ).then(() => setVerifyNote(""))
+                          }
+                        >
+                          核对通过
+                        </button>
+                        <button
+                          className={btnCls}
+                          disabled={busy}
+                          onClick={() =>
+                            run(
+                              () => reviewVerification(v.user_id, false, verifyNote),
+                              `已驳回 ${v.email} 的实名申请。`,
+                            ).then(() => setVerifyNote(""))
+                          }
+                        >
+                          驳回
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">仅总管理员可核对</span>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -46,6 +46,7 @@ services:
       - ./docker/self-hosted/site-settings.sql:/opt/genealogy/site-settings.sql:ro
       - ./docker/self-hosted/access-control.sql:/opt/genealogy/access-control.sql:ro
       - ./docker/self-hosted/privacy-access.sql:/opt/genealogy/privacy-access.sql:ro
+      - ./docker/self-hosted/branch-roles.sql:/opt/genealogy/branch-roles.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
       interval: 5s

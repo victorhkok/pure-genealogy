@@ -12,6 +12,8 @@ export default async function AdminPage() {
       initialProfiles={data.profiles}
       initialClaims={data.claims}
       initialVerifications={data.verifications}
+      initialMembers={data.members}
+      initialIsBranchAdminView={data.isBranchAdminView}
       initialError={data.error}
     />
   );

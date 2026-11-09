@@ -1,6 +1,6 @@
 // 权限类型与纯函数：客户端 / 服务端共用，不依赖任何服务端模块。
 
-export type UserRole = "admin" | "editor" | "member";
+export type UserRole = "admin" | "branch_admin" | "editor" | "member";
 export type UserStatus = "pending" | "active" | "disabled";
 export type BadgeTier = "none" | "gold" | "silver" | "bronze";
 export type VerificationStatus = "none" | "pending" | "verified" | "rejected";
@@ -19,6 +19,8 @@ export interface Viewer {
   badgeLabel: string;
   badgeTier: BadgeTier;
   contributionNote: string;
+  /** 房支管理员管辖的房祖成员 ID（非房支管理员为 null） */
+  branchScope: number | null;
 }
 
 /** 传给前端表格的权限快照。仅用于界面展示，真正的拦截在服务端 action + RLS。 */
@@ -39,9 +41,10 @@ export interface ViewerPermissions {
   canViewPrivate: boolean;
 }
 
-/** editor 保留角色值以兼容 RLS，但对外展示为「认证贡献者」。 */
+/** 角色展示文案。admin 展示为「总管理员」以区分房支管理员。 */
 export const ROLE_LABELS: Record<UserRole, string> = {
-  admin: "管理员",
+  admin: "总管理员",
+  branch_admin: "房支管理员",
   editor: "认证贡献者",
   member: "普通用户",
 };
@@ -85,23 +88,27 @@ export const GUEST_PERMISSIONS: ViewerPermissions = {
 export function buildPermissions(viewer: Viewer | null): ViewerPermissions {
   if (!viewer || viewer.status !== "active") return GUEST_PERMISSIONS;
   const isAdmin = viewer.role === "admin";
+  const isBranchAdmin = viewer.role === "branch_admin";
   const isEditor = viewer.role === "editor";
   return {
     role: viewer.role,
-    canCreate: isAdmin,
-    canDelete: isAdmin,
-    canBatch: isAdmin,
-    canImport: isAdmin,
+    // 房支管理员可在本支内增删，故开放新增/删除/批量/导入入口；实际越支操作由 RLS 拦截。
+    canCreate: isAdmin || isBranchAdmin,
+    canDelete: isAdmin || isBranchAdmin,
+    canBatch: isAdmin || isBranchAdmin,
+    canImport: isAdmin || isBranchAdmin,
     canChangeSettings: isAdmin,
-    canEditAny: isAdmin || isEditor,
+    // 房支管理员可编辑本支任意成员（RLS 限制范围）；认证贡献者可编辑全族。
+    canEditAny: isAdmin || isEditor || isBranchAdmin,
     editableIds: viewer.approvedClaimIds,
     // 普通用户只能认领一次；已有生效认领后不再显示认领入口。
     canClaim: viewer.role === "member" && viewer.approvedClaimIds.length === 0,
     canManageUsers: isAdmin,
     canVerifyUsers: isAdmin,
-    canEditPrivateRecords: isAdmin,
+    canEditPrivateRecords: isAdmin || isBranchAdmin,
     canViewPrivate:
       isAdmin ||
+      isBranchAdmin ||
       (viewer.verification === "verified" && viewer.approvedClaimIds.length > 0),
   };
 }

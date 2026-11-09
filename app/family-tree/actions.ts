@@ -107,7 +107,7 @@ export interface CreateMemberInput {
 export async function createFamilyMember(
   input: CreateMemberInput
 ): Promise<{ success: boolean; error: string | null }> {
-  const denied = await guard("admin");
+  const denied = await guard("write");
   if (denied) return { success: false, error: denied };
 
   const supabase = await createClient();
@@ -138,7 +138,7 @@ export async function createFamilyMember(
 export async function deleteFamilyMembers(
   ids: number[]
 ): Promise<{ success: boolean; error: string | null }> {
-  const denied = await guard("admin");
+  const denied = await guard("write");
   if (denied) return { success: false, error: denied };
   if (ids.length === 0) {
     return { success: false, error: "没有选择要删除的成员" };
@@ -300,7 +300,7 @@ export async function batchUpdateFamilyMembers(
     error,
   });
 
-  const denied = await guard("admin");
+  const denied = await guard("write");
   if (denied) return fail(denied);
 
   if (uniqueIds.length === 0) return fail("没有选择要修改的成员");
@@ -483,7 +483,7 @@ export async function previewFamilyMembersImport(
   members: ImportMemberInput[]
 ): Promise<{ fathers: ImportFatherMatch[]; error: string | null }> {
   try {
-    const denied = await guard("admin");
+    const denied = await guard("write");
     if (denied) return { fathers: [], error: denied };
     const supabase = await createClient();
     const prepared = await prepareMemberImport(supabase, members);
@@ -496,7 +496,7 @@ export async function previewFamilyMembersImport(
 export async function batchCreateFamilyMembers(
   input: ImportMemberInput[]
 ): Promise<{ success: boolean; count: number; error: string | null }> {
-  const denied = await guard("admin");
+  const denied = await guard("write");
   if (denied) return { success: false, count: 0, error: denied };
 
   const supabase = await createClient();
